@@ -51,6 +51,8 @@ func main() {
 
 	arantesScraper := scraper.NewArantesScraper(
 		scraper.ArantesConfig(cfg.ArantesConfig),
+		cfg.DestinationLat,
+		cfg.DestinationLng,
 		store,
 		discord,
 		geoProvider,

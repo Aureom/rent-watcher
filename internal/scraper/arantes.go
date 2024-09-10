@@ -25,23 +25,21 @@ type ArantesScraper struct {
 }
 
 type ArantesConfig struct {
-	BaseURL        string
-	MaxPages       int
-	UserAgent      string
-	BaseParams     config.ArantesParams
-	DestinationLat float64
-	DestinationLng float64
+	BaseURL    string
+	MaxPages   int
+	UserAgent  string
+	BaseParams config.ArantesParams
 }
 
-func NewArantesScraper(config ArantesConfig, storage storage.Storage, notifier notifier.Notifier, geoProvider GeolocationProvider) *ArantesScraper {
+func NewArantesScraper(config ArantesConfig, destinationLat, destinationLng float64, storage storage.Storage, notifier notifier.Notifier, geoProvider GeolocationProvider) *ArantesScraper {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &ArantesScraper{
 		BaseScraper: BaseScraper{
 			Storage:             storage,
 			Notifier:            notifier,
 			GeolocationProvider: geoProvider,
-			DestinationLat:      config.DestinationLat,
-			DestinationLng:      config.DestinationLng,
+			DestinationLat:      destinationLat,
+			DestinationLng:      destinationLng,
 		},
 		Config: config,
 		ctx:    ctx,

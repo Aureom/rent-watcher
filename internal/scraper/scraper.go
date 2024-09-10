@@ -24,18 +24,22 @@ type BaseScraper struct {
 }
 
 func (bs *BaseScraper) ProcessProperty(ctx context.Context, property *models.Property, rawData string) error {
-	if bs.GeolocationProvider != nil {
+	isNew, err := bs.Storage.SaveProperty(property, rawData)
+	if err != nil {
+		return err
+	}
+
+	if isNew && bs.GeolocationProvider != nil {
 		distance, err := bs.GeolocationProvider.CalculateDistance(ctx, property, bs.DestinationLat, bs.DestinationLng)
 		if err != nil {
 			println("Error calculating distance:", err.Error())
 		} else {
 			property.DistanceMeters = distance
-		}
-	}
 
-	isNew, err := bs.Storage.SaveProperty(property, rawData)
-	if err != nil {
-		return err
+			if _, err := bs.Storage.SaveProperty(property, rawData); err != nil {
+				return err
+			}
+		}
 	}
 
 	if isNew {
