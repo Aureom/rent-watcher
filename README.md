@@ -2,7 +2,8 @@
 
 Scrapping de imóveis que monitora imobiliárias e alerta sempre que um novo imóvel for listado
 
-![image](https://github.com/user-attachments/assets/6b133f16-3975-4028-81c2-60716e2fabc5)
+![image](https://github.com/user-attachments/assets/248ca29b-b16d-42c5-8b0e-a91b51f0e51e)
+
 
 -----------------------
 
