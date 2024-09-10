@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"context"
+	"fmt"
 	"rent-watcher/internal/models"
 	"rent-watcher/internal/notifier"
 	"rent-watcher/internal/storage"
@@ -24,26 +25,34 @@ type BaseScraper struct {
 }
 
 func (bs *BaseScraper) ProcessProperty(ctx context.Context, property *models.Property, rawData string) error {
-	isNew, err := bs.Storage.SaveProperty(property, rawData)
+	exists, err := bs.Storage.PropertyExists(property.ID)
 	if err != nil {
-		return err
+		return fmt.Errorf("error checking if property exists: %w", err)
 	}
 
-	if isNew && bs.GeolocationProvider != nil {
-		distance, err := bs.GeolocationProvider.CalculateDistance(ctx, property, bs.DestinationLat, bs.DestinationLng)
-		if err != nil {
-			println("Error calculating distance:", err.Error())
-		} else {
-			property.DistanceMeters = distance
-
-			if _, err := bs.Storage.SaveProperty(property, rawData); err != nil {
-				return err
+	if !exists {
+		if bs.GeolocationProvider != nil {
+			distance, err := bs.GeolocationProvider.CalculateDistance(ctx, property, bs.DestinationLat, bs.DestinationLng)
+			if err != nil {
+				return fmt.Errorf("error calculating distance: %w", err)
 			}
+			property.DistanceMeters = distance
 		}
+
+		if err := bs.Notifier.NotifyNewProperty(property); err != nil {
+			return fmt.Errorf("error notifying about new property: %w", err)
+		}
+	} else {
+		existingProperty, err := bs.Storage.GetProperty(property.ID)
+		if err != nil {
+			return fmt.Errorf("error fetching existing property: %w", err)
+		}
+		property.DistanceMeters = existingProperty.DistanceMeters
 	}
 
-	if isNew {
-		return bs.Notifier.NotifyNewProperty(property)
+	err = bs.Storage.SaveOrUpdateProperty(property, rawData)
+	if err != nil {
+		return fmt.Errorf("error saving or updating property: %w", err)
 	}
 
 	return nil

@@ -8,7 +8,9 @@ import (
 )
 
 type Storage interface {
-	SaveProperty(property *models.Property, rawData string) (bool, error)
+	GetProperty(propertyID string) (*models.Property, error)
+	PropertyExists(propertyID string) (bool, error)
+	SaveOrUpdateProperty(property *models.Property, rawData string) error
 }
 
 type SQLStorage struct {
@@ -19,39 +21,84 @@ func NewSQLStorage(db *sql.DB) Storage {
 	return &SQLStorage{db: db}
 }
 
-func (s *SQLStorage) SaveProperty(property *models.Property, rawData string) (bool, error) {
+func (s *SQLStorage) GetProperty(propertyID string) (*models.Property, error) {
+	var property models.Property
+	err := s.db.QueryRow(`
+		SELECT id, first_photo, price, logradouro, bairro, cidade, metragem, quartos, banheiros, suites, garagens, tipo_imovel, distance_meters
+		FROM properties WHERE id = ?`, propertyID).Scan(
+		&property.ID, &property.FirstPhoto, &property.Price, &property.Logradouro, &property.Bairro, &property.Cidade,
+		&property.Metragem, &property.Quartos, &property.Banheiros, &property.Suites, &property.Garagens, &property.TipoImovel,
+		&property.DistanceMeters)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("property not found: %w", err)
+		}
+		return nil, fmt.Errorf("failed to get property: %w", err)
+	}
+	return &property, nil
+}
+
+func (s *SQLStorage) SaveOrUpdateProperty(property *models.Property, rawData string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
-		return false, fmt.Errorf("failed to begin transaction: %w", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	var existingID string
-	err = tx.QueryRow("SELECT id FROM properties WHERE id = ?", property.ID).Scan(&existingID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return false, fmt.Errorf("failed to check existing property: %w", err)
+	exists, err := s.propertyExistsInTx(tx, property.ID)
+	if err != nil {
+		return fmt.Errorf("failed to check property existence: %w", err)
 	}
 
-	isNew := errors.Is(err, sql.ErrNoRows)
-
-	if isNew {
-		err = s.insertProperty(tx, property, rawData)
+	if exists {
+		err = s.updatePropertyData(tx, property)
 	} else {
-		err = s.updateProperty(tx, property, rawData)
+		err = s.insertPropertyData(tx, property)
 	}
 
 	if err != nil {
-		return false, err
+		return err
+	}
+
+	err = s.upsertRawData(tx, property.ID, rawData)
+	if err != nil {
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return false, fmt.Errorf("failed to commit transaction: %w", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return isNew, nil
+	return nil
+}
+
+func (s *SQLStorage) propertyExistsInTx(tx *sql.Tx, propertyID string) (bool, error) {
+	var id string
+	err := tx.QueryRow("SELECT id FROM properties WHERE id = ?", propertyID).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *SQLStorage) insertProperty(tx *sql.Tx, property *models.Property, rawData string) error {
+	if err := s.insertPropertyData(tx, property); err != nil {
+		return err
+	}
+	return s.insertRawData(tx, property.ID, rawData)
+}
+
+func (s *SQLStorage) updateProperty(tx *sql.Tx, property *models.Property, rawData string) error {
+	if err := s.updatePropertyData(tx, property); err != nil {
+		return err
+	}
+	return s.updateRawData(tx, property.ID, rawData)
+}
+
+func (s *SQLStorage) insertPropertyData(tx *sql.Tx, property *models.Property) error {
 	_, err := tx.Exec(`
 		INSERT INTO properties 
 		(id, first_photo, price, logradouro, bairro, cidade, metragem, quartos, banheiros, suites, garagens, tipo_imovel, distance_meters) 
@@ -62,40 +109,67 @@ func (s *SQLStorage) insertProperty(tx *sql.Tx, property *models.Property, rawDa
 	if err != nil {
 		return fmt.Errorf("failed to insert property: %w", err)
 	}
-
-	_, err = tx.Exec(`
-		INSERT INTO raw_data 
-		(id, json_data) 
-		VALUES (?, ?)`,
-		property.ID, rawData)
-	if err != nil {
-		return fmt.Errorf("failed to insert raw data: %w", err)
-	}
-
 	return nil
 }
 
-func (s *SQLStorage) updateProperty(tx *sql.Tx, property *models.Property, rawData string) error {
+func (s *SQLStorage) updatePropertyData(tx *sql.Tx, property *models.Property) error {
 	_, err := tx.Exec(`
 		UPDATE properties 
 		SET first_photo = ?, price = ?, logradouro = ?, bairro = ?, cidade = ?, metragem = ?, 
-			quartos = ?, banheiros = ?, suites = ?, garagens = ?, tipo_imovel = ?, distance_meters = ?
+			quartos = ?, banheiros = ?, suites = ?, garagens = ?, tipo_imovel = ?
 		WHERE id = ?`,
 		property.FirstPhoto, property.Price, property.Logradouro, property.Bairro, property.Cidade,
 		property.Metragem, property.Quartos, property.Banheiros, property.Suites, property.Garagens, property.TipoImovel,
-		property.DistanceMeters, property.ID)
+		property.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update property: %w", err)
 	}
+	return nil
+}
 
-	_, err = tx.Exec(`
+func (s *SQLStorage) upsertRawData(tx *sql.Tx, id, rawData string) error {
+	_, err := tx.Exec(`
+		INSERT OR REPLACE INTO raw_data (id, json_data)
+		VALUES (?, ?)`,
+		id, rawData)
+	if err != nil {
+		return fmt.Errorf("failed to upsert raw data: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLStorage) insertRawData(tx *sql.Tx, id, rawData string) error {
+	_, err := tx.Exec(`
+		INSERT INTO raw_data 
+		(id, json_data) 
+		VALUES (?, ?)`,
+		id, rawData)
+	if err != nil {
+		return fmt.Errorf("failed to insert raw data: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLStorage) updateRawData(tx *sql.Tx, id, rawData string) error {
+	_, err := tx.Exec(`
 		UPDATE raw_data 
 		SET json_data = ?
 		WHERE id = ?`,
-		rawData, property.ID)
+		rawData, id)
 	if err != nil {
 		return fmt.Errorf("failed to update raw data: %w", err)
 	}
-
 	return nil
+}
+
+func (s *SQLStorage) PropertyExists(propertyID string) (bool, error) {
+	var id string
+	err := s.db.QueryRow("SELECT id FROM properties WHERE id = ?", propertyID).Scan(&id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check property existence: %w", err)
+	}
+	return true, nil
 }
