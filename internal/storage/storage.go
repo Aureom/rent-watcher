@@ -54,10 +54,11 @@ func (s *SQLStorage) SaveProperty(property *models.Property, rawData string) (bo
 func (s *SQLStorage) insertProperty(tx *sql.Tx, property *models.Property, rawData string) error {
 	_, err := tx.Exec(`
 		INSERT INTO properties 
-		(id, first_photo, price, logradouro, bairro, cidade, metragem, quartos, banheiros, suites, garagens, tipo_imovel) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, first_photo, price, logradouro, bairro, cidade, metragem, quartos, banheiros, suites, garagens, tipo_imovel, distance_meters) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		property.ID, property.FirstPhoto, property.Price, property.Logradouro, property.Bairro, property.Cidade,
-		property.Metragem, property.Quartos, property.Banheiros, property.Suites, property.Garagens, property.TipoImovel)
+		property.Metragem, property.Quartos, property.Banheiros, property.Suites, property.Garagens, property.TipoImovel,
+		property.DistanceMeters)
 	if err != nil {
 		return fmt.Errorf("failed to insert property: %w", err)
 	}
@@ -78,11 +79,11 @@ func (s *SQLStorage) updateProperty(tx *sql.Tx, property *models.Property, rawDa
 	_, err := tx.Exec(`
 		UPDATE properties 
 		SET first_photo = ?, price = ?, logradouro = ?, bairro = ?, cidade = ?, metragem = ?, 
-			quartos = ?, banheiros = ?, suites = ?, garagens = ?, tipo_imovel = ?
+			quartos = ?, banheiros = ?, suites = ?, garagens = ?, tipo_imovel = ?, distance_meters = ?
 		WHERE id = ?`,
 		property.FirstPhoto, property.Price, property.Logradouro, property.Bairro, property.Cidade,
 		property.Metragem, property.Quartos, property.Banheiros, property.Suites, property.Garagens, property.TipoImovel,
-		property.ID)
+		property.DistanceMeters, property.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update property: %w", err)
 	}

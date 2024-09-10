@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gocolly/colly"
@@ -11,32 +12,48 @@ import (
 	"rent-watcher/internal/notifier"
 	"rent-watcher/internal/storage"
 	"strconv"
+	"sync"
 	"time"
 )
 
 type ArantesScraper struct {
 	BaseScraper
 	Config ArantesConfig
+	mu     sync.Mutex
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type ArantesConfig struct {
-	BaseURL    string
-	MaxPages   int
-	UserAgent  string
-	BaseParams config.ArantesParams
+	BaseURL        string
+	MaxPages       int
+	UserAgent      string
+	BaseParams     config.ArantesParams
+	DestinationLat float64
+	DestinationLng float64
 }
 
-func NewArantesScraper(config ArantesConfig, storage storage.Storage, notifier notifier.Notifier) *ArantesScraper {
+func NewArantesScraper(config ArantesConfig, storage storage.Storage, notifier notifier.Notifier, geoProvider GeolocationProvider) *ArantesScraper {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &ArantesScraper{
 		BaseScraper: BaseScraper{
-			Storage:  storage,
-			Notifier: notifier,
+			Storage:             storage,
+			Notifier:            notifier,
+			GeolocationProvider: geoProvider,
+			DestinationLat:      config.DestinationLat,
+			DestinationLng:      config.DestinationLng,
 		},
 		Config: config,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
-func (as *ArantesScraper) Scrape() error {
+func (as *ArantesScraper) Scrape(ctx context.Context) error {
+	as.mu.Lock()
+	as.ctx, as.cancel = context.WithCancel(ctx)
+	as.mu.Unlock()
+
 	c := as.initCollector()
 	as.setupCallbacks(c)
 	return as.scrapePagination(c)
@@ -56,7 +73,9 @@ func (as *ArantesScraper) initCollector() *colly.Collector {
 }
 
 func (as *ArantesScraper) setupCallbacks(c *colly.Collector) {
-	c.OnHTML(".card-imovel", as.processPropertyCard)
+	c.OnHTML(".card-imovel", func(e *colly.HTMLElement) {
+		as.processPropertyCard(e)
+	})
 	c.OnError(func(r *colly.Response, err error) {
 		fmt.Printf("Request URL: %s failed with response: %v\nError: %v\n",
 			r.Request.URL, r, err)
@@ -65,7 +84,7 @@ func (as *ArantesScraper) setupCallbacks(c *colly.Collector) {
 
 func (as *ArantesScraper) processPropertyCard(e *colly.HTMLElement) {
 	property, rawData := as.extractPropertyData(e)
-	if err := as.ProcessProperty(property, rawData); err != nil {
+	if err := as.ProcessProperty(as.ctx, property, rawData); err != nil {
 		fmt.Printf("Error processing property: %v\n", err)
 	}
 }
@@ -120,13 +139,19 @@ func (as *ArantesScraper) scrapePagination(c *colly.Collector) error {
 	}
 
 	for page := 1; page <= as.Config.MaxPages; page++ {
-		params := baseParams
-		params.Set("page", strconv.Itoa(page))
-		pageURL := as.Config.BaseURL + "?" + params.Encode()
+		select {
+		case <-as.ctx.Done():
+			return as.ctx.Err()
+		default:
+			params := baseParams
+			params.Set("page", strconv.Itoa(page))
+			pageURL := as.Config.BaseURL + "?" + params.Encode()
 
-		log.Printf("Visiting page %d: %s\n", page, pageURL)
-		if err := c.Visit(pageURL); err != nil {
-			log.Printf("Failed to visit page %d: %v\n", page, err)
+			log.Printf("Visiting page %d: %s\n", page, pageURL)
+			err := c.Visit(pageURL)
+			if err != nil {
+				log.Printf("Failed to visit page %d: %v\n", page, err)
+			}
 		}
 	}
 

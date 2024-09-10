@@ -7,17 +7,20 @@ import (
 )
 
 type Config struct {
-	DatabaseURL    string        `json:"database_url"`
-	DiscordToken   string        `json:"discord_token"`
-	DiscordChannel string        `json:"discord_channel"`
-	ArantesConfig  ArantesConfig `json:"arantes_config"`
+	DatabaseURL      string        `json:"database_url"`
+	DiscordToken     string        `json:"discord_token"`
+	DiscordChannel   string        `json:"discord_channel"`
+	GoogleMapsAPIKey string        `json:"google_maps_api_key"`
+	ArantesConfig    ArantesConfig `json:"arantes_config"`
 }
 
 type ArantesConfig struct {
-	BaseURL    string        `json:"base_url"`
-	MaxPages   int           `json:"max_pages"`
-	UserAgent  string        `json:"user_agent"`
-	BaseParams ArantesParams `json:"base_params"`
+	BaseURL        string        `json:"base_url"`
+	MaxPages       int           `json:"max_pages"`
+	UserAgent      string        `json:"user_agent"`
+	BaseParams     ArantesParams `json:"base_params"`
+	DestinationLat float64       `json:"destination_lat"`
+	DestinationLng float64       `json:"destination_lng"`
 }
 
 type ArantesParams struct {

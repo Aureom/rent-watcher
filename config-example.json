@@ -1,11 +1,14 @@
 {
   "database_url": "file:./database.db",
-  "discord_token": "",
-  "discord_channel": "",
+  "discord_token": "<discord_bot_token>",
+  "discord_channel": "<discord_channel_id>",
+  "google_maps_api_key": "<api_key_google_maps>",
+  "destination_lat": -10.8249467,
+  "destination_lng": -42.7278008,
   "arantes_config": {
     "base_url": "https://www.arantesimoveis.com/listagem/",
     "max_pages": 5,
-    "user_agent": "",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
     "base_params": {
       "cidade": "1",
       "bairro": "142",

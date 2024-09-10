@@ -33,17 +33,18 @@ func New(token, channel string) (notifier.Notifier, error) {
 
 func (d *Discord) NotifyNewProperty(p *models.Property) error {
 	embed := &discordgo.MessageEmbed{
-		Title: "New Property Listed! 🏠",
-		URL:   fmt.Sprintf("https://www.arantesimoveis.com%s", p.ID),
-		Color: 0x00ff00, // Green color
+		Title:       "New Property Listed! 🏠",
+		Description: fmt.Sprintf("[%s - %s, %s](https://www.arantesimoveis.com%s)", p.Logradouro, p.Bairro, p.Cidade, p.ID),
+		URL:         fmt.Sprintf("https://www.arantesimoveis.com%s", p.ID),
+		Color:       0x00bfff,
 		Fields: []*discordgo.MessageEmbedField{
-			{Name: "📍 Address", Value: fmt.Sprintf("%s, %s, %s", p.Logradouro, p.Bairro, p.Cidade), Inline: false},
 			{Name: "💰 Price", Value: fmt.Sprintf("R$ %s", p.Price), Inline: true},
 			{Name: "🏘️ Type", Value: p.TipoImovel, Inline: true},
 			{Name: "🛏️ Bedrooms", Value: p.Quartos, Inline: true},
 			{Name: "🚿 Bathrooms", Value: p.Banheiros, Inline: true},
 			{Name: "🚗 Parking Spaces", Value: p.Garagens, Inline: true},
 			{Name: "📏 Area", Value: fmt.Sprintf("%s m²", p.Metragem), Inline: true},
+			{Name: "📍 Distance", Value: fmt.Sprintf("%d m", p.DistanceMeters), Inline: true},
 		},
 		Footer: &discordgo.MessageEmbedFooter{
 			Text: "Property ID: " + strings.TrimPrefix(p.ID, "/detalhes/"),
