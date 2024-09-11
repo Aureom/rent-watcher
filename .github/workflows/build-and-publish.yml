@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build and Publish
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build and Test
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +59,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: ./docker/Dockerfile
+          file: ./.docker/Dockerfile
           push: true
           tags: |
             aureom/rent-watcher:latest
