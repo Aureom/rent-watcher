@@ -37,15 +37,23 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Error closing database connection: %v", err)
+		}
+	}()
 
 	store := storage.NewSQLStorage(db)
 
-	discord, err := discord.New(cfg.DiscordToken, cfg.DiscordChannel)
+	discordBot, err := discord.New(cfg.DiscordToken, cfg.DiscordChannel)
 	if err != nil {
 		log.Fatalf("Failed to initialize Discord bot: %v", err)
 	}
-	defer discord.Close()
+	defer func() {
+		if err := discordBot.Close(); err != nil {
+			log.Printf("Error closing Discord bot: %v", err)
+		}
+	}()
 
 	geoProvider := geolocation.NewGoogleMapsClient(cfg.GoogleMapsAPIKey)
 
@@ -54,7 +62,7 @@ func main() {
 		cfg.DestinationLat,
 		cfg.DestinationLng,
 		store,
-		discord,
+		discordBot,
 		geoProvider,
 	)
 
