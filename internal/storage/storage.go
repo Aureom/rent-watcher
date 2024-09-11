@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"rent-watcher/internal/models"
 )
 
@@ -43,30 +44,39 @@ func (s *SQLStorage) SaveOrUpdateProperty(property *models.Property, rawData str
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
 
-	exists, err := s.propertyExistsInTx(tx, property.ID)
+	err = func() error {
+		defer func() {
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				log.Printf("Error rolling back transaction: %v", rbErr)
+			}
+		}()
+
+		exists, err := s.propertyExistsInTx(tx, property.ID)
+		if err != nil {
+			return fmt.Errorf("failed to check property existence: %w", err)
+		}
+
+		if exists {
+			err = s.updatePropertyData(tx, property)
+		} else {
+			err = s.insertPropertyData(tx, property)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		err = s.upsertRawData(tx, property.ID, rawData)
+		if err != nil {
+			return err
+		}
+
+		return tx.Commit()
+	}()
+
 	if err != nil {
-		return fmt.Errorf("failed to check property existence: %w", err)
-	}
-
-	if exists {
-		err = s.updatePropertyData(tx, property)
-	} else {
-		err = s.insertPropertyData(tx, property)
-	}
-
-	if err != nil {
-		return err
-	}
-
-	err = s.upsertRawData(tx, property.ID, rawData)
-	if err != nil {
-		return err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return fmt.Errorf("transaction failed: %w", err)
 	}
 
 	return nil
@@ -82,20 +92,6 @@ func (s *SQLStorage) propertyExistsInTx(tx *sql.Tx, propertyID string) (bool, er
 		return false, err
 	}
 	return true, nil
-}
-
-func (s *SQLStorage) insertProperty(tx *sql.Tx, property *models.Property, rawData string) error {
-	if err := s.insertPropertyData(tx, property); err != nil {
-		return err
-	}
-	return s.insertRawData(tx, property.ID, rawData)
-}
-
-func (s *SQLStorage) updateProperty(tx *sql.Tx, property *models.Property, rawData string) error {
-	if err := s.updatePropertyData(tx, property); err != nil {
-		return err
-	}
-	return s.updateRawData(tx, property.ID, rawData)
 }
 
 func (s *SQLStorage) insertPropertyData(tx *sql.Tx, property *models.Property) error {
@@ -134,30 +130,6 @@ func (s *SQLStorage) upsertRawData(tx *sql.Tx, id, rawData string) error {
 		id, rawData)
 	if err != nil {
 		return fmt.Errorf("failed to upsert raw data: %w", err)
-	}
-	return nil
-}
-
-func (s *SQLStorage) insertRawData(tx *sql.Tx, id, rawData string) error {
-	_, err := tx.Exec(`
-		INSERT INTO raw_data 
-		(id, json_data) 
-		VALUES (?, ?)`,
-		id, rawData)
-	if err != nil {
-		return fmt.Errorf("failed to insert raw data: %w", err)
-	}
-	return nil
-}
-
-func (s *SQLStorage) updateRawData(tx *sql.Tx, id, rawData string) error {
-	_, err := tx.Exec(`
-		UPDATE raw_data 
-		SET json_data = ?
-		WHERE id = ?`,
-		rawData, id)
-	if err != nil {
-		return fmt.Errorf("failed to update raw data: %w", err)
 	}
 	return nil
 }

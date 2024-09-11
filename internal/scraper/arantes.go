@@ -53,22 +53,32 @@ func (as *ArantesScraper) Scrape(ctx context.Context) error {
 	as.ctx, as.cancel = context.WithCancel(ctx)
 	as.mu.Unlock()
 
-	c := as.initCollector()
-	as.setupCallbacks(c)
-	return as.scrapePagination(c)
+	collector, err := as.initCollector()
+	if err != nil {
+		return fmt.Errorf("failed to initialize collector: %w", err)
+	}
+
+	as.setupCallbacks(collector)
+	return as.scrapePagination(collector)
 }
 
-func (as *ArantesScraper) initCollector() *colly.Collector {
+func (as *ArantesScraper) initCollector() (*colly.Collector, error) {
 	c := colly.NewCollector(
 		colly.AllowURLRevisit(),
 		colly.UserAgent(as.Config.UserAgent),
 	)
-	c.Limit(&colly.LimitRule{
+
+	err := c.Limit(&colly.LimitRule{
 		DomainGlob:  "*arantesimoveis.com*",
 		Parallelism: 3,
-		//RandomDelay: 5 * time.Second,
+		//RandomDelay: 2 * time.Second,
 	})
-	return c
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to set rate limit: %w", err)
+	}
+
+	return c, nil
 }
 
 func (as *ArantesScraper) setupCallbacks(c *colly.Collector) {
