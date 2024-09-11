@@ -34,6 +34,8 @@ func createTables(db *sql.DB) error {
             garagens TEXT,
             tipo_imovel TEXT,
             distance_meters INTEGER,
+            condominio TEXT,
+            total_price TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS raw_data (

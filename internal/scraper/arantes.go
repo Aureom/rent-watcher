@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gocolly/colly"
 	"log"
 	"net/url"
 	"rent-watcher/internal/config"
@@ -12,8 +11,10 @@ import (
 	"rent-watcher/internal/notifier"
 	"rent-watcher/internal/storage"
 	"strconv"
+	"strings"
 	"sync"
-	"time"
+
+	"github.com/gocolly/colly"
 )
 
 type ArantesScraper struct {
@@ -64,26 +65,56 @@ func (as *ArantesScraper) initCollector() *colly.Collector {
 	)
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*arantesimoveis.com*",
-		Parallelism: 2,
-		RandomDelay: 5 * time.Second,
+		Parallelism: 3,
+		//RandomDelay: 5 * time.Second,
 	})
 	return c
 }
 
 func (as *ArantesScraper) setupCallbacks(c *colly.Collector) {
 	c.OnHTML(".card-imovel", func(e *colly.HTMLElement) {
-		as.processPropertyCard(e)
+		as.processPropertyCard(e, c)
 	})
 	c.OnError(func(r *colly.Response, err error) {
-		fmt.Printf("Request URL: %s failed with response: %v\nError: %v\n",
+		log.Printf("Request URL: %s failed with response: %v\nError: %v\n",
 			r.Request.URL, r, err)
 	})
 }
 
-func (as *ArantesScraper) processPropertyCard(e *colly.HTMLElement) {
+func (as *ArantesScraper) processPropertyCard(e *colly.HTMLElement, c *colly.Collector) {
 	property, rawData := as.extractPropertyData(e)
+	detailsURL := as.getDetailsURL(property.ID)
+
+	detailsCollector := c.Clone()
+	fmt.Printf("Visiting details page for property %s: %s\n", property.ID, detailsURL)
+
+	detailsCollector.OnHTML(".table-striped", func(e *colly.HTMLElement) {
+		as.extractDetailsData(e, property)
+	})
+
+	err := detailsCollector.Visit(detailsURL)
+	if err != nil {
+		log.Printf("Error visiting details page for property %s: %v\n", property.ID, err)
+	}
+
+	property.TotalPrice = property.Price
+	if property.Price != "" && property.Condominio != "" {
+		price, err := strconv.ParseFloat(strings.ReplaceAll(property.Price, ",", "."), 64)
+		if err != nil {
+			log.Printf("Error parsing price: %v\n", err)
+			return
+		}
+		condominio, err := strconv.ParseFloat(strings.ReplaceAll(property.Condominio, ",", "."), 64)
+		if err != nil {
+			log.Printf("Error parsing condominio: %v\n", err)
+			return
+		}
+
+		property.TotalPrice = fmt.Sprintf("%.2f", price+condominio)
+	}
+
 	if err := as.ProcessProperty(as.ctx, property, rawData); err != nil {
-		fmt.Printf("Error processing property: %v\n", err)
+		log.Printf("Error processing property: %v\n", err)
 	}
 }
 
@@ -101,16 +132,37 @@ func (as *ArantesScraper) extractPropertyData(e *colly.HTMLElement) (*models.Pro
 	property.Garagens = getValueOrDefault(e.ChildText(".fa-car + span"), property.Garagens)
 	property.Price = getValueOrDefault(e.ChildText(".money"), property.Price)
 
-	// add "https://www.arantesimoveis.com" to first photo URL if it's not a full URL already
 	if property.FirstPhoto != "" && property.FirstPhoto[0] == '/' {
-		property.FirstPhoto = fmt.Sprintf("https://www.arantesimoveis.com%s", property.FirstPhoto)
-	}
-
-	if detailLink := e.ChildAttr(".span-card-titulo a", "href"); detailLink == "" && property.ID != "" {
-		property.ID = fmt.Sprintf("/detalhes/%s", property.ID)
+		property.FirstPhoto = as.Config.BaseURL + property.FirstPhoto
 	}
 
 	return &property, jsonData
+}
+
+func (as *ArantesScraper) getDetailsURL(propertyID string) string {
+	return fmt.Sprintf("%s/detalhes/%s", as.Config.BaseURL, propertyID)
+}
+
+func (as *ArantesScraper) extractDetailsData(e *colly.HTMLElement, property *models.Property) {
+	e.ForEach("tr", func(_ int, row *colly.HTMLElement) {
+		label := strings.TrimSpace(row.ChildText("td:first-child"))
+		value := strings.TrimSpace(row.ChildText("td:last-child"))
+
+		switch {
+		case strings.Contains(label, "Condomínio"):
+			property.Condominio = cleanMoneyString(value)
+		case strings.Contains(label, "Suíte"):
+			property.Suites = value
+		case strings.Contains(label, "Tipo"):
+			property.TipoImovel = value
+		case strings.Contains(label, "Garagem"):
+			property.Garagens = value
+		}
+	})
+}
+
+func cleanMoneyString(s string) string {
+	return strings.TrimSpace(strings.TrimPrefix(s, "R$"))
 }
 
 func getValueOrDefault(value, defaultValue string) string {
@@ -143,7 +195,7 @@ func (as *ArantesScraper) scrapePagination(c *colly.Collector) error {
 		default:
 			params := baseParams
 			params.Set("page", strconv.Itoa(page))
-			pageURL := as.Config.BaseURL + "?" + params.Encode()
+			pageURL := as.Config.BaseURL + "/listagem/?" + params.Encode()
 
 			log.Printf("Visiting page %d: %s\n", page, pageURL)
 			err := c.Visit(pageURL)

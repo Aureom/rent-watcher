@@ -14,4 +14,6 @@ type Property struct {
 	Garagens       string `json:"garagens"`
 	TipoImovel     string `json:"tipo_imovel"`
 	DistanceMeters int    `json:"distance_meters"`
+	Condominio     string `json:"condominio"`
+	TotalPrice     string `json:"total_price"`
 }
